@@ -1,38 +1,22 @@
-/* LSM9DS1_MS5611_t3 Basic Example Code
-by: Kris Winer
-date: November 1, 2014
-license: Beerware - Use this code however you'd like. If you 
-find it useful you can buy me a beer some time.
-
-Demonstrate basic LSM9DS1 functionality including parameterizing the register addresses, initializing the sensor, 
-getting properly scaled accelerometer, gyroscope, and magnetometer data out. Added display functions to 
-allow display to on breadboard monitor. Addition of 9 DoF sensor fusion using open source Madgwick and 
-Mahony filter algorithms. Sketch runs on the 3.3 V 8 MHz Pro Mini and the Teensy 3.1.
-
-This sketch is intended specifically for the LSM9DS1+MS5611 Add-on shield for the Teensy 3.1.
-It uses SDA/SCL on pins 17/16, respectively, and it uses the Teensy 3.1-specific Wire library i2c_t3.h.
-The MS5611 is a simple but high resolution pressure sensor, which can be used in its high resolution
-mode but with power consumption od 20 microAmp, or in a lower resolution mode with power consumption of
-only 1 microAmp. The choice will depend on the application.
-
-SDA and SCL should have external pull-up resistors (to 3.3V).
-4K7 resistors are on the LSM9DS1+MS5611 Teensy 3.1 add-on shield/breakout board.
-
-Hardware setup:
-LSM9DS1Breakout --------- Arduino
-VDD ---------------------- 3.3V
-VDDI --------------------- 3.3V
-SDA ----------------------- A4
-SCL ----------------------- A5
-GND ---------------------- GND
-
-Note: The LSM9DS1 is an I2C sensor and can use the Arduino Wire library. 
-Because the sensor is not 5V tolerant, we are using either a 3.3 V 8 MHz Pro Mini or a 3.3 V Teensy 3.1.
-We have disabled the internal pull-ups used by the Wire library in the Wire.h/twi.c utility file.
-We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L /twi.h utility file.
+/* LSM9DS1 + BLE advertising
+ *  STATUS: WORKING
+ *  TODO: CLEAN CODE :)
  */
+
+#include <ArduinoBLE.h>
 #include "Wire.h"   
 #include <SPI.h>
+
+// comment out when ready to roll
+//#define DEBUG 1
+
+// ---------------------------- BLE globals ----------------------------------------
+BLEService quaternionService("1101");
+BLEFloatCharacteristic quaternionQ0Char("2101", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ1Char("2102", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ2Char("2103", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ3Char("2104", BLERead | BLENotify);
+// ---------------------------------------------------------------------------------
 
 // See MS5611-02BA03 Low Voltage Barometric Pressure Sensor Data Sheet
 #define MS5611_RESET      0x1E
@@ -131,8 +115,6 @@ We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L 
 #define LSM9DS1M_ADDRESS  0x1D   //  Address of magnetometer
 #define MS5611_ADDRESS    0x77   //  Address of altimeter
 #endif  
-
-#define SerialDebug true  // set to true to get Serial output for debugging
 
 // Set initial input parameters
 enum Ascale {  // set of allowable accel full scale settings
@@ -233,7 +215,7 @@ int myLed  = 13;
 
 uint16_t Pcal[8];         // calibration constants from MS5611 PROM registers
 unsigned char nCRC;       // calculated check sum to ensure PROM integrity
-uint32_t D1 = 0, D2 = 0;  // raw MS5611 pressure and temperature data
+uint32_t D_1 = 0, D_2 = 0;  // raw MS5611 pressure and temperature data
 double dT, OFFSET, SENS, T2, OFFSET2, SENS2;  // First order and second order corrections for raw S5637 temperature and pressure data
 int16_t accelCount[3], gyroCount[3], magCount[3];  // Stores the 16-bit signed accelerometer, gyro, and mag sensor output
 float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0},  magBias[3] = {0, 0, 0}; // Bias corrections for gyro, accelerometer, and magnetometer
@@ -244,14 +226,7 @@ double Temperature, Pressure; // stores MS5611 pressures sensor pressure and tem
 // global constants for 9 DoF fusion and AHRS (Attitude and Heading Reference System)
 float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
 float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-// There is a tradeoff in the beta parameter between accuracy and response speed.
-// In the original Madgwick study, beta of 0.041 (corresponding to GyroMeasError of 2.7 degrees/s) was found to give optimal accuracy.
-// However, with this value, the LSM9SD0 response time is about 10 seconds to a stable initial quaternion.
-// Subsequent changes also require a longish lag time to a stable output, not fast enough for a quadcopter or robot car!
-// By increasing beta (GyroMeasError) by about a factor of fifteen, the response time constant is reduced to ~2 sec
-// I haven't noticed any reduction in solution accuracy. This is essentially the I coefficient in a PID control sense; 
-// the bigger the feedback coefficient, the faster the solution converges, usually at the expense of accuracy. 
-// In any case, this is the free parameter in the Madgwick filtering and fusion scheme.
+
 float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
 float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
 #define Kp 2.0f * 5.0f // these are the free parameters in the Mahony filter and fusion scheme, Kp for proportional feedback, Ki for integral
@@ -271,112 +246,145 @@ float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for M
 void setup()
 {
   Wire1.begin();
-  //  TWBR = 12;  // 400 kbit/sec I2C speed for Pro Mini
-  // Setup for Master mode, pins 16/17, external pullups, 400kHz for Teensy 3.1
-  //Wire.begin(I2C_MASTER, 0x00, I2C_PINS_16_17, I2C_PULLUP_EXT, I2C_RATE_400);
-  // reset
   writeByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, 0x05);
   writeByte(LSM9DS1M_ADDRESS, LSM9DS1M_CTRL_REG2_M, 0x0c);
 
   delay(100);
-  Serial.begin(38400);
+
+  #ifdef DEBUG
+    Serial.begin(38400);
+    while(!Serial);
+  #endif
 
   // Initialize LED pin
   pinMode(myLed, OUTPUT);
   digitalWrite(myLed, HIGH);
-  /*  
-      display.begin(); // Initialize the display
-      display.setContrast(40); // Set the contrast
 
-  // Start device display with ID of sensor
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setCursor(0,0); display.print("LSM9DS1");
-  display.setTextSize(1);
-  display.setCursor(0, 20); display.print("9-DOF 16-bit");
-  display.setCursor(0, 30); display.print("motion sensor");
-  display.setCursor(20,40); display.print("60 ug LSB");
-  display.display();
-  delay(1000);
+  // start BLE service
+  if (!BLE.begin()) 
+  {
+    #ifdef DEBUG
+      Serial.println("starting BLE failed!");
+    #endif
+    while (1);
+  }
+  BLE.setLocalName("QuaternionMonitor");
+  BLE.setAdvertisedService(quaternionService);
+  quaternionService.addCharacteristic(quaternionQ0Char);
+  quaternionService.addCharacteristic(quaternionQ1Char);
+  quaternionService.addCharacteristic(quaternionQ2Char);
+  quaternionService.addCharacteristic(quaternionQ3Char);
+  BLE.addService(quaternionService);
+  
+  BLE.advertise();
+  #ifdef DEBUG
+    Serial.println("Bluetooth device active, waiting for connections...");
+  #endif
 
-  // Set up for data display
-  display.setTextSize(1); // Set text size to normal, 2 is twice normal etc.
-  display.setTextColor(BLACK); // Set pixel color; 1 on the monochrome screen
-  display.clearDisplay();   // clears the screen and buffer
-   */
 
   // Read the WHO_AM_I registers, this is a good test of communication
-  Serial.println("LSM9DS1 9-axis motion sensor...");
+  #ifdef DEBUG
+    Serial.println("LSM9DS1 9-axis motion sensor...");
+  #endif
   byte c = readByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_WHO_AM_I);  // Read WHO_AM_I register for LSM9DS1 accel/gyro
-  Serial.print("LSM9DS1 accel/gyro"); Serial.print("I AM "); Serial.print(c, HEX); Serial.print(" I should be "); Serial.println(0x68, HEX);
+  #ifdef DEBUG
+    Serial.print("LSM9DS1 accel/gyro"); Serial.print("I AM "); Serial.print(c, HEX); Serial.print(" I should be "); Serial.println(0x68, HEX);
+  #endif
   byte d = readByte(LSM9DS1M_ADDRESS, LSM9DS1M_WHO_AM_I);  // Read WHO_AM_I register for LSM9DS1 magnetometer
-  Serial.print("LSM9DS1 magnetometer"); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x3D, HEX);
-  /*
-     display.setCursor(20,0); display.print("LSM9DS1");
-     display.setCursor(0,10); display.print("I AM"); display.print(c, HEX);  
-     display.setCursor(0,20); display.print("I Should Be"); display.print(0x68, HEX); 
-     display.setCursor(0,30); display.print("I AM"); display.print(d, HEX);  
-     display.setCursor(0,40); display.print("I Should Be"); display.print(0x3D, HEX); 
-     display.display();
-     delay(1000); 
-   */
+  #ifdef DEBUG
+    Serial.print("LSM9DS1 magnetometer"); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x3D, HEX);
+  #endif
 
   if (c == 0x68 && d == 0x3D) // WHO_AM_I should always be 0x0E for the accel/gyro and 0x3C for the mag
   {  
-    Serial.println("LSM9DS1 is online...");
+    #ifdef DEBUG
+      Serial.println("LSM9DS1 is online...");
+    #endif
 
     // get sensor resolutions, only need to do this once
     getAres();
     getGres();
     getMres();
-    Serial.print("accel sensitivity is "); Serial.print(1./(1000.*aRes)); Serial.println(" LSB/mg");
-    Serial.print("gyro sensitivity is "); Serial.print(1./(1000.*gRes)); Serial.println(" LSB/mdps");
-    Serial.print("mag sensitivity is "); Serial.print(1./(1000.*mRes)); Serial.println(" LSB/mGauss");
 
-    Serial.println("Perform gyro and accel self test");
+    #ifdef DEBUG
+      Serial.print("accel sensitivity is "); Serial.print(1./(1000.*aRes)); Serial.println(" LSB/mg");
+      Serial.print("gyro sensitivity is "); Serial.print(1./(1000.*gRes)); Serial.println(" LSB/mdps");
+      Serial.print("mag sensitivity is "); Serial.print(1./(1000.*mRes)); Serial.println(" LSB/mGauss");
+  
+      Serial.println("Perform gyro and accel self test");
+    #endif
     selftestLSM9DS1(); // check function of gyro and accelerometer via self test
 
-    Serial.println(" Calibrate gyro and accel");
+    #ifdef DEBUG
+      Serial.println(" Calibrate gyro and accel");
+    #endif
     accelgyrocalLSM9DS1(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
-    Serial.println("accel biases (mg)"); Serial.println(1000.*accelBias[0]); Serial.println(1000.*accelBias[1]); Serial.println(1000.*accelBias[2]);
-    Serial.println("gyro biases (dps)"); Serial.println(gyroBias[0]); Serial.println(gyroBias[1]); Serial.println(gyroBias[2]);
+    #ifdef DEBUG
+      Serial.println("accel biases (mg)"); Serial.println(1000.*accelBias[0]); Serial.println(1000.*accelBias[1]); Serial.println(1000.*accelBias[2]);
+      Serial.println("gyro biases (dps)"); Serial.println(gyroBias[0]); Serial.println(gyroBias[1]); Serial.println(gyroBias[2]);
+    #endif
 
     magcalLSM9DS1(magBias);
-    Serial.println("mag biases (mG)"); Serial.println(1000.*magBias[0]); Serial.println(1000.*magBias[1]); Serial.println(1000.*magBias[2]); 
+    #ifdef DEBUG
+      Serial.println("mag biases (mG)"); Serial.println(1000.*magBias[0]); Serial.println(1000.*magBias[1]); Serial.println(1000.*magBias[2]); 
+    #endif
     delay(2000); // add delay to see results before serial spew of data
 
     initLSM9DS1(); 
-    Serial.println("LSM9DS1 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
-
-    /* display.clearDisplay();
-
-       display.setCursor(0, 0); display.print("LSM9DS1bias");
-       display.setCursor(0, 8); display.print(" x   y   z  ");
-
-       display.setCursor(0,  16); display.print((int)(1000*accelBias[0])); 
-       display.setCursor(24, 16); display.print((int)(1000*accelBias[1])); 
-       display.setCursor(48, 16); display.print((int)(1000*accelBias[2])); 
-       display.setCursor(72, 16); display.print("mg");
-
-       display.setCursor(0,  24); display.print(gyroBias[0], 1); 
-       display.setCursor(24, 24); display.print(gyroBias[1], 1); 
-       display.setCursor(48, 24); display.print(gyroBias[2], 1); 
-       display.setCursor(66, 24); display.print("o/s");   
-
-       display.display();
-       delay(1000); 
-     */   
+    #ifdef DEBUG
+      Serial.println("LSM9DS1 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature  
+    #endif
   }
   else
   {
-    Serial.print("Could not connect to LSM9DS1: 0x");
-    Serial.println(c, HEX);
+    #ifdef DEBUG
+      Serial.print("Could not connect to LSM9DS1: 0x");
+      Serial.println(c, HEX);
+    #endif
     while(1) ; // Loop forever if communication doesn't happen
   }
 }
 
 void loop()
 {  
+
+  BLEDevice central = BLE.central();
+  if (central) {
+    #ifdef DEBUG
+      Serial.print("Connected to central: ");
+      Serial.println(central.address());
+    #endif
+
+    while (central.connected()) {
+      readaccel();
+      #ifdef DEBUG
+        Serial.print("q_0: ");
+        Serial.println(q[0]);
+        Serial.print("q_1: ");
+        Serial.println(q[1]);
+        Serial.print("q_2: ");
+        Serial.println(q[2]);
+        Serial.print("q_3: ");
+        Serial.println(q[3]);
+      #endif
+      quaternionQ0Char.writeValue(q[0]);
+      quaternionQ1Char.writeValue(q[1]);
+      quaternionQ2Char.writeValue(q[2]);
+      quaternionQ3Char.writeValue(q[3]);
+
+      delay(200);
+    }
+  }
+
+  #ifdef DEBUG
+    Serial.print("Disconnected from central: ");
+    Serial.println(central.address());
+  #endif
+}
+//---------------------------------------- MAIN LOOP ENDS ---------------------------------------- 
+
+void readaccel(){
+  
   if (readByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_STATUS_REG) & 0x01) {  // check if new accel data is ready  
     readAccelData(accelCount);  // Read the x/y/z adc values
 
@@ -412,14 +420,6 @@ void loop()
   sum += deltat; // sum for averaging filter update rate
   sumCount++;
 
-  // Sensors x, y, and z axes of the accelerometer and gyro are aligned. The magnetometer  
-  // the magnetometer z-axis (+ up) is aligned with the z-axis (+ up) of accelerometer and gyro, but the magnetometer
-  // x-axis is aligned with the -x axis of the gyro and the magnetometer y axis is aligned with the y axis of the gyro!
-  // We have to make some allowance for this orientation mismatch in feeding the output to the quaternion filter.
-  // For the LSM9DS1, we have chosen a magnetic rotation that keeps the sensor forward along the x-axis just like
-  // in the LSM9DS0 sensor. This rotation can be modified to allow any convenient orientation convention.
-  // This is ok by aircraft orientation standards!  
-  // Pass gyro rate as rad/s
   MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, -mx, my, mz);
   //  MahonyQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, -mx, my, mz);
 
@@ -427,40 +427,15 @@ void loop()
   delt_t = millis() - count;
   if (delt_t > 500) { // update LCD once per half-second independent of read rate
 
-    if(SerialDebug) {
-//      Serial.print("ax = "); Serial.print((int)1000*ax);  
-//      Serial.print(" ay = "); Serial.print((int)1000*ay); 
-//      Serial.print(" az = "); Serial.print((int)1000*az); Serial.println(" mg");
-//      Serial.print("gx = "); Serial.print( gx, 2); 
-//      Serial.print(" gy = "); Serial.print( gy, 2); 
-//      Serial.print(" gz = "); Serial.print( gz, 2); Serial.println(" deg/s");
-//      Serial.print("mx = "); Serial.print( (int)1000*mx ); 
-//      Serial.print(" my = "); Serial.print( (int)1000*my ); 
-//      Serial.print(" mz = "); Serial.print( (int)1000*mz ); Serial.println(" mG");
-
-//      Serial.print("q0 = "); Serial.print(q[0]);
-//      Serial.print(" qx = "); Serial.print(q[1]); 
-//      Serial.print(" qy = "); Serial.print(q[2]); 
-//      Serial.print(" qz = "); Serial.println(q[3]); 
+    #ifdef DEBUG
       Serial.print(q[0]);
       Serial.print(";"); Serial.print(q[1]); 
       Serial.print(";"); Serial.print(q[2]); 
       Serial.print(";"); Serial.println(q[3]); 
-    }               
+    #endif
+              
     tempCount = readTempData();  // Read the gyro adc values
     temperature = ((float) tempCount/256. + 25.0); // Gyro chip temperature in degrees Centigrade
-    // Print temperature in degrees Centigrade      
-//    Serial.print("Gyro temperature is ");  Serial.print(temperature, 1);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
-
-    // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
-    // In this coordinate system, the positive z-axis is down toward Earth. 
-    // Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
-    // Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
-    // Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
-    // These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
-    // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
-    // applied in the correct order which for this configuration is yaw, pitch, and then roll.
-    // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
     yaw   = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);   
     pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
     roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
@@ -468,59 +443,6 @@ void loop()
     yaw   *= 180.0f / PI; 
     yaw   -= 13.22f; // Declination at Los Altos, California is ~13 degrees 13 minutes on 2020-07-19
     roll  *= 180.0f / PI;
-
-//    if(SerialDebug) {
-//      Serial.print("Yaw, Pitch, Roll: ");
-//      Serial.print(yaw, 2);
-//      Serial.print(", ");
-//      Serial.print(pitch, 2);
-//      Serial.print(", ");
-//      Serial.println(roll, 2);
-//
-//      Serial.print("rate = "); Serial.print((float)sumCount/sum, 2); Serial.println(" Hz\n");
-//    }
-    /*   
-         display.clearDisplay();    
-
-         display.setCursor(0, 0); display.print(" x   y   z ");
-
-         display.setCursor(0,  8); display.print((int)(1000*ax)); 
-         display.setCursor(24, 8); display.print((int)(1000*ay)); 
-         display.setCursor(48, 8); display.print((int)(1000*az)); 
-         display.setCursor(72, 8); display.print("mg");
-
-         display.setCursor(0,  16); display.print((int)(gx)); 
-         display.setCursor(24, 16); display.print((int)(gy)); 
-         display.setCursor(48, 16); display.print((int)(gz)); 
-         display.setCursor(66, 16); display.print("o/s");    
-
-         display.setCursor(0,  24); display.print((int)(mx)); 
-         display.setCursor(24, 24); display.print((int)(my)); 
-         display.setCursor(48, 24); display.print((int)(mz)); 
-         display.setCursor(72, 24); display.print("mG");    
-
-         display.setCursor(0,  32); display.print((int)(yaw)); 
-         display.setCursor(24, 32); display.print((int)(pitch)); 
-         display.setCursor(48, 32); display.print((int)(roll)); 
-         display.setCursor(66, 32); display.print("ypr");  
-     */ 
-    // With these settings the filter is updating at a ~145 Hz rate using the Madgwick scheme and 
-    // >200 Hz using the Mahony scheme even though the display refreshes at only 2 Hz.
-    // The filter update rate is determined mostly by the mathematical steps in the respective algorithms, 
-    // the processor speed (8 MHz for the 3.3V Pro Mini), and the magnetometer ODR:
-    // an ODR of 10 Hz for the magnetometer produce the above rates, maximum magnetometer ODR of 100 Hz produces
-    // filter update rates of 36 - 145 and ~38 Hz for the Madgwick and Mahony schemes, respectively. 
-    // This is presumably because the magnetometer read takes longer than the gyro or accelerometer reads.
-    // This filter update rate should be fast enough to maintain accurate platform orientation for 
-    // stabilization control of a fast-moving robot or quadcopter. Compare to the update rate of 200 Hz
-    // produced by the on-board Digital Motion Processor of Invensense's MPU6050 6 DoF and MPU9150 9DoF sensors.
-    // The 3.3 V 8 MHz Pro Mini is doing pretty well!
-    /*    display.setCursor(0, 40); display.print(altitude, 0); display.print("ft"); 
-          display.setCursor(68, 0); display.print(9.*Temperature/5. + 32., 0); 
-          display.setCursor(42, 40); display.print((float) sumCount / (1000.*sum), 2); display.print("kHz"); 
-          display.display();
-     */
-
 
     digitalWrite(myLed, !digitalRead(myLed));
     count = millis(); 
@@ -665,19 +587,23 @@ void selftestLSM9DS1()
   float gyrody = (gyro_ST[1] - gyro_noST[1]);
   float gyrodz = (gyro_ST[2] - gyro_noST[2]);
 
-  Serial.println("Gyro self-test results: ");
-  Serial.print("x-axis = "); Serial.print(gyrodx); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
-  Serial.print("y-axis = "); Serial.print(gyrody); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
-  Serial.print("z-axis = "); Serial.print(gyrodz); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+  #ifdef DEBUG
+    Serial.println("Gyro self-test results: ");
+    Serial.print("x-axis = "); Serial.print(gyrodx); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+    Serial.print("y-axis = "); Serial.print(gyrody); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+    Serial.print("z-axis = "); Serial.print(gyrodz); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+  #endif
 
   float accdx = 1000.*(accel_ST[0] - accel_noST[0]);
   float accdy = 1000.*(accel_ST[1] - accel_noST[1]);
   float accdz = 1000.*(accel_ST[2] - accel_noST[2]);
 
-  Serial.println("Accelerometer self-test results: ");
-  Serial.print("x-axis = "); Serial.print(accdx); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
-  Serial.print("y-axis = "); Serial.print(accdy); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
-  Serial.print("z-axis = "); Serial.print(accdz); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+  #ifdef DEBUG
+    Serial.println("Accelerometer self-test results: ");
+    Serial.print("x-axis = "); Serial.print(accdx); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+    Serial.print("y-axis = "); Serial.print(accdy); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+    Serial.print("z-axis = "); Serial.print(accdz); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+  #endif
 
   writeByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10,   0x00); // disable self test
   delay(200);
@@ -789,7 +715,9 @@ void magcalLSM9DS1(float * dest1)
   writeByte(LSM9DS1M_ADDRESS, LSM9DS1M_CTRL_REG4_M, Mmode << 2 ); // select z-axis mode
   writeByte(LSM9DS1M_ADDRESS, LSM9DS1M_CTRL_REG5_M, 0x40 ); // select block update mode
 
-  Serial.println("Mag Calibration: Wave device in a figure eight until done!");
+  #ifdef DEBUG
+    Serial.println("Mag Calibration: Wave device in a figure eight until done!");
+  #endif
   delay(4000);
 
   sample_count = 128;
@@ -826,7 +754,9 @@ void magcalLSM9DS1(float * dest1)
   writeByte(LSM9DS1M_ADDRESS, LSM9DS1M_OFFSET_Z_REG_L_M, (int16_t) mag_bias[2] & 0xFF);
   writeByte(LSM9DS1M_ADDRESS, LSM9DS1M_OFFSET_Z_REG_H_M, ((int16_t)mag_bias[2] >> 8) & 0xFF);
 
+  #ifdef DEBUG
   Serial.println("Mag Calibration done!");
+  #endif
 }
 
 // I2C read/write functions for the LSM9DS1and AK8963 sensors
