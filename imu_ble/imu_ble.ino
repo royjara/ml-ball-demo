@@ -1,6 +1,6 @@
 /* LSM9DS1 + BLE advertising
  *  STATUS: WORKING
- *  TODO: CLEAN CODE :)
+ *  TODO: average d(acc(x))/dt, d(acc(y))/dt, d(acc(z))/dt
  */
 
 #include <ArduinoBLE.h>
