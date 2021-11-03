@@ -8,13 +8,13 @@
 #include <SPI.h>
 
 // comment out when ready to roll
-//#define DEBUG 1
+#define DEBUG 1
 
 // ---------------------------- BLE globals ----------------------------------------
 BLEService quaternionService("1101");
-BLEFloatCharacteristic quaternionQ0Char("2101", BLERead | BLENotify);
-BLEFloatCharacteristic quaternionQ1Char("2102", BLERead | BLENotify);
-BLEFloatCharacteristic quaternionQ2Char("2103", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ0Char("0000181a-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ1Char("00002A3D-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
+BLEFloatCharacteristic quaternionQ2Char("00002A58-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
 BLEFloatCharacteristic quaternionQ3Char("2104", BLERead | BLENotify);
 // ---------------------------------------------------------------------------------
 
@@ -278,6 +278,8 @@ void setup()
   
   BLE.advertise();
   #ifdef DEBUG
+    Serial.print("MAC: ");
+    Serial.println(BLE.address());
     Serial.println("Bluetooth device active, waiting for connections...");
   #endif
 
@@ -372,7 +374,7 @@ void loop()
       quaternionQ2Char.writeValue(q[2]);
       quaternionQ3Char.writeValue(q[3]);
 
-      delay(200);
+      delay(100);
     }
   }
 
