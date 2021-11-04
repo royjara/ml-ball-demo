@@ -30,13 +30,10 @@ class DataToOsc:
         self.osc_path = osc_path
         self.client = udp_client.SimpleUDPClient(self.ip, self.port)
 
-    def write_to_osc(self, data_values: [Any], subpath: [int]):
-        pat = self.osc_path + '/q'.join(str(subpath))
+    def write_to_osc(self, data_values: [Any]):
         self.client.send_message(
-            pat, struct.unpack('f', data_values)[0])
-
-        print(f"{pat} {struct.unpack('f', data_values)[0]}")
-        # print(f"{self.osc_path} {data_values}")
+            self.osc_path, struct.unpack('f', data_values)[0])
+        # print(f"{self.osc_path} {struct.unpack('f', data_values)[0]}")
 
 
 class Connection:
@@ -47,16 +44,11 @@ class Connection:
         self,
         loop: asyncio.AbstractEventLoop,
         readq0_characteristic: str,
-        readq1_characteristic: str,
-        # readq2_characteristic: str,
         data_dump_handler: Callable[[str, Any], None],
         data_dump_size: int = 1,
     ):
         self.loop = loop
         self.readq0_characteristic = readq0_characteristic
-        self.readq1_characteristic = readq1_characteristic
-        # self.readq2_characteristic = readq2_characteristic
-
         self.data_dump_handler = data_dump_handler
 
         self.last_packet_time = datetime.now()
@@ -76,7 +68,6 @@ class Connection:
     async def cleanup(self):
         if self.client:
             await self.client.stop_notify(self.readq0_characteristic)
-            await self.client.stop_notify(self.readq1_characteristic)
             await self.client.disconnect()
 
     async def manager(self):
@@ -98,10 +89,7 @@ class Connection:
                 print(F"Connected to {self.connected_device.name}")
                 self.client.set_disconnected_callback(self.on_disconnect)
                 await self.client.start_notify(
-                    self.readq0_characteristic, self.notification_handler, subpath=0,
-                )
-                await self.client.start_notify(
-                    self.readq1_characteristic, self.notification_handler, subpath=1,
+                    self.readq0_characteristic, self.notification_handler,
                 )
                 while True:
                     if not self.connected:
@@ -138,9 +126,9 @@ class Connection:
         self.connected_device = devices[response]
         self.client = BleakClient(devices[response].address, loop=self.loop)
 
-    def notification_handler(self, sender: int, data: Any, **kwargs):
+    def notification_handler(self, sender: int, data: Any):
         self.rx_data = data
-        self.data_dump_handler(self.rx_data, **kwargs)
+        self.data_dump_handler(self.rx_data)
         self.rx_data.clear()
 
 
@@ -157,24 +145,20 @@ async def main():
 # App Main
 #############
 q0_characteristic = "0000181a-0000-1000-8000-00805f9b34fb"
-q1_characteristic = "00002A3D-0000-1000-8000-00805f9b34fb"
-q2_characteristic = "00002A58-0000-1000-8000-00805f9b34fb"
-# q3_characteristic = "2104"
 
 if __name__ == "__main__":
 
     # Create the event loop.
     loop = asyncio.get_event_loop()
 
-    # data_to_file = DataToFile(output_file)
-    data_to_osc = DataToOsc("127.0.0.1", 10000, "/test")
-    # data_to_osc1 = DataToOsc("127.0.0.1", 10000, "/test/q1")
+    data_to_osc = DataToOsc("127.0.0.1", 10000, "/wek/inputs")
     connection = Connection(
-        loop, q0_characteristic, q1_characteristic, data_to_osc.write_to_osc
+        loop, q0_characteristic, data_to_osc.write_to_osc
     )
     try:
         asyncio.ensure_future(connection.manager())
         asyncio.ensure_future(main())
+        print("entering run_forever loop :^)")
         loop.run_forever()
     except KeyboardInterrupt:
         print()

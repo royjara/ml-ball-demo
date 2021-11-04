@@ -8,14 +8,14 @@
 #include <SPI.h>
 
 // comment out when ready to roll
-#define DEBUG 1
+//#define DEBUG 1
 
 // ---------------------------- BLE globals ----------------------------------------
 BLEService quaternionService("1101");
 BLEFloatCharacteristic quaternionQ0Char("0000181a-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
-BLEFloatCharacteristic quaternionQ1Char("00002A3D-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
-BLEFloatCharacteristic quaternionQ2Char("00002A58-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
-BLEFloatCharacteristic quaternionQ3Char("2104", BLERead | BLENotify);
+//BLEFloatCharacteristic quaternionQ1Char("00002A3D-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
+//BLEFloatCharacteristic quaternionQ2Char("00002A58-0000-1000-8000-00805f9b34fb", BLERead | BLENotify);
+//BLEFloatCharacteristic quaternionQ3Char("2104", BLERead | BLENotify);
 // ---------------------------------------------------------------------------------
 
 // See MS5611-02BA03 Low Voltage Barometric Pressure Sensor Data Sheet
@@ -240,6 +240,7 @@ uint32_t Now = 0;                         // used to calculate integration inter
 
 float ax, ay, az, gx, gy, gz, mx, my, mz; // variables to hold latest sensor data values 
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};    // vector to hold quaternion
+float q_0[4] = {0.0f};                        // vector to hold old quaternion
 float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for Mahony method
 
 
@@ -271,9 +272,9 @@ void setup()
   BLE.setLocalName("QuaternionMonitor");
   BLE.setAdvertisedService(quaternionService);
   quaternionService.addCharacteristic(quaternionQ0Char);
-  quaternionService.addCharacteristic(quaternionQ1Char);
-  quaternionService.addCharacteristic(quaternionQ2Char);
-  quaternionService.addCharacteristic(quaternionQ3Char);
+//  quaternionService.addCharacteristic(quaternionQ1Char);
+//  quaternionService.addCharacteristic(quaternionQ2Char);
+//  quaternionService.addCharacteristic(quaternionQ3Char);
   BLE.addService(quaternionService);
   
   BLE.advertise();
@@ -356,23 +357,32 @@ void loop()
       Serial.print("Connected to central: ");
       Serial.println(central.address());
     #endif
-
     while (central.connected()) {
       readaccel();
       #ifdef DEBUG
-        Serial.print("q_0: ");
-        Serial.println(q[0]);
-        Serial.print("q_1: ");
-        Serial.println(q[1]);
-        Serial.print("q_2: ");
-        Serial.println(q[2]);
-        Serial.print("q_3: ");
-        Serial.println(q[3]);
+//        Serial.print("q_0: ");
+//        Serial.println(q[0]);
+//        Serial.print("q_1: ");
+//        Serial.println(q[1]);
+//        Serial.print("q_2: ");
+//        Serial.println(q[2]);
+//        Serial.print("q_3: ");
+//        Serial.println(q[3]);
+        Serial.print("ax= ");
+        Serial.print(ax);
+        Serial.print("; ay= ");
+        Serial.print(ay);
+        Serial.print("; az= ");
+        Serial.print(az);
+        Serial.print("; combed= ");
+        Serial.println((ax+ay+az)/3.);
       #endif
-      quaternionQ0Char.writeValue(q[0]);
-      quaternionQ1Char.writeValue(q[1]);
-      quaternionQ2Char.writeValue(q[2]);
-      quaternionQ3Char.writeValue(q[3]);
+
+
+      quaternionQ0Char.writeValue( (ax+ay+az)/3.);
+//      quaternionQ1Char.writeValue(q[1]);
+//      quaternionQ2Char.writeValue(q[2]);
+//      quaternionQ3Char.writeValue(q[3]);
 
       delay(100);
     }
@@ -436,15 +446,15 @@ void readaccel(){
       Serial.print(";"); Serial.println(q[3]); 
     #endif
               
-    tempCount = readTempData();  // Read the gyro adc values
-    temperature = ((float) tempCount/256. + 25.0); // Gyro chip temperature in degrees Centigrade
-    yaw   = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);   
-    pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
-    roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
-    pitch *= 180.0f / PI;
-    yaw   *= 180.0f / PI; 
-    yaw   -= 13.22f; // Declination at Los Altos, California is ~13 degrees 13 minutes on 2020-07-19
-    roll  *= 180.0f / PI;
+    // tempCount = readTempData();  // Read the gyro adc values
+    // temperature = ((float) tempCount/256. + 25.0); // Gyro chip temperature in degrees Centigrade
+    // yaw   = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);   
+    // pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
+    // roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+    // pitch *= 180.0f / PI;
+    // yaw   *= 180.0f / PI; 
+    // yaw   -= 13.22f; // Declination at Los Altos, California is ~13 degrees 13 minutes on 2020-07-19
+    // roll  *= 180.0f / PI;
 
     digitalWrite(myLed, !digitalRead(myLed));
     count = millis(); 
