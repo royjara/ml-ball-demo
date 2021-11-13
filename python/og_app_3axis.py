@@ -28,7 +28,7 @@ class DataToOsc:
         self.osc_path = osc_path
         self.client = udp_client.SimpleUDPClient(self.ip, self.port)
 
-    def write_to_osc(self, data_values: Any]:
+    def write_to_osc(self, data_values: Any):
         self.client.send_message(
             self.osc_path, [struct.unpack('f', data_values[0])[0],
                             struct.unpack('f', data_values[1])[0],
