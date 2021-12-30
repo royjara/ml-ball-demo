@@ -11,10 +11,13 @@ Currently it doesn't sound very melodic but with some more work it could be a ni
 - Max/MSP patch receives the Wekinator outputs and drives the music.
 
 ### Notice that to power the board using a battery you have to solder the 5V pad.
-![2021-11-01 20 47 50](https://user-images.githubusercontent.com/32803636/147714332-c8b9cbbf-bf1e-4a34-bad4-1b1b146c457d.jpg)
+![2021-11-01 20 47 50](https://user-images.githubusercontent.com/32803636/147714506-2f3845c6-6b26-403c-84f5-d962fd3147a9.jpg)
+
 
 ### Rough soft case - could be replace by a 3D printed enclosure. 
-![2021-11-01 20 48 24](https://user-images.githubusercontent.com/32803636/147714379-28452732-8a7a-4005-8235-e4f7d9399ccb.jpg)
+![2021-11-01 20 48 24](https://user-images.githubusercontent.com/32803636/147714508-1c62f53d-811e-4da6-9d55-e3a701fb1880.jpg)
+![2021-11-01 20 49 00](https://user-images.githubusercontent.com/32803636/147714510-702e52e9-a368-4b3c-bd77-e173e8e5a786.jpg)
+
 
 
 ## Big thanks to:
